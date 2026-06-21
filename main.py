@@ -38,6 +38,10 @@ async def proxy(request: Request):
         if k not in ("url", "token")
     }
 
+    # gzip等を自動展開させるためAccept-Encodingを除去
+    headers.pop("accept-encoding", None)
+    headers.pop("Accept-Encoding", None)
+
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
             resp = await client.request(
