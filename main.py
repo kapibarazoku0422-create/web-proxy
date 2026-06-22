@@ -13,6 +13,21 @@ app = FastAPI()
 async def favicon():
     return FileResponse("favicon.ico")
 
+
+@app.get("/manifest.json")
+async def manifest():
+    return FileResponse("manifest.json")
+
+
+@app.get("/icon-192.png")
+async def icon192():
+    return FileResponse("icon-192.png")
+
+
+@app.get("/icon-512.png")
+async def icon512():
+    return FileResponse("icon-512.png")
+
 AUTH_TOKEN = os.environ.get("PROXY_TOKEN", "")
 RATE_LIMIT_HEADER = {"X-Robots-Tag": "noindex, nofollow"}
 
