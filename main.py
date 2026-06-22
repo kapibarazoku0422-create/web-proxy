@@ -21,8 +21,8 @@ RATE_LIMIT_HEADER = {"X-Robots-Tag": "noindex, nofollow"}
 HOME_HTML = """<!DOCTYPE html>
 <html lang="ja">
 <head>
-<link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/favicon.ico">
+<link rel="manifest" href="/manifest.json">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>kapibara home</title>
