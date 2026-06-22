@@ -3,6 +3,7 @@ from fastapi.responses import Response, HTMLResponse
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, quote
+import re
 import os
 
 app = FastAPI()
@@ -28,61 +29,27 @@ HOME_HTML = """<!DOCTYPE html>
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     color: #e0e0e0;
   }
-  .logo {
-    font-size: 48px;
-    font-weight: 700;
-    letter-spacing: -2px;
-    color: #fff;
-    margin-bottom: 8px;
-  }
-  .sub {
-    font-size: 14px;
-    color: #555;
-    margin-bottom: 48px;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-  }
+  .logo { font-size: 48px; font-weight: 700; letter-spacing: -2px; color: #fff; margin-bottom: 8px; }
+  .sub { font-size: 14px; color: #555; margin-bottom: 48px; letter-spacing: 2px; text-transform: uppercase; }
   .search-box {
-    display: flex;
-    align-items: center;
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
-    border-radius: 12px;
-    padding: 6px 6px 6px 20px;
-    width: 560px;
-    max-width: 90vw;
-    gap: 8px;
+    display: flex; align-items: center;
+    background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px;
+    padding: 6px 6px 6px 20px; width: 560px; max-width: 90vw; gap: 8px;
     transition: border-color 0.2s;
   }
   .search-box:focus-within { border-color: #444; }
   .search-box input {
-    flex: 1;
-    background: none;
-    border: none;
-    outline: none;
-    font-size: 16px;
-    color: #e0e0e0;
-    min-width: 0;
+    flex: 1; background: none; border: none; outline: none;
+    font-size: 16px; color: #e0e0e0; min-width: 0;
   }
   .search-box input::placeholder { color: #444; }
   .search-box button {
-    background: #fff;
-    color: #000;
-    border: none;
-    border-radius: 8px;
-    padding: 10px 20px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: opacity 0.2s;
+    background: #fff; color: #000; border: none; border-radius: 8px;
+    padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+    white-space: nowrap; transition: opacity 0.2s;
   }
   .search-box button:hover { opacity: 0.85; }
-  .hint {
-    margin-top: 20px;
-    font-size: 13px;
-    color: #333;
-  }
+  .hint { margin-top: 20px; font-size: 13px; color: #333; }
 </style>
 </head>
 <body>
@@ -98,9 +65,7 @@ function go(e) {
   e.preventDefault();
   let url = document.getElementById('url').value.trim();
   if (!url) return;
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = 'https://' + url;
-  }
+  if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
   window.location.href = '/view?url=' + encodeURIComponent(url);
 }
 </script>
@@ -116,16 +81,13 @@ HOME_BUTTON = """
     border:1px solid rgba(255,255,255,0.12);
     text-decoration:none;color:#fff;font-size:20px;
     box-shadow:0 2px 12px rgba(0,0,0,0.4);
-    transition:background 0.2s;
   " onmouseover="this.style.background='rgba(40,40,40,0.95)'"
-     onmouseout="this.style.background='rgba(15,15,15,0.85)'">
-    ⌂
-  </a>
+     onmouseout="this.style.background='rgba(15,15,15,0.85)'">⌂</a>
 </div>
 """
 
 def rewrite_url(url: str, base_url: str = "") -> str:
-    if not url or url.startswith(("data:", "javascript:", "#", "mailto:", "tel:")):
+    if not url or url.startswith(("data:", "javascript:", "#", "mailto:", "tel:", "/view?")):
         return url
     if url.startswith("//"):
         url = "https:" + url
@@ -136,9 +98,25 @@ def rewrite_url(url: str, base_url: str = "") -> str:
             return url
     return f"/view?url={quote(url, safe='')}"
 
+def rewrite_js(js: str, base_url: str) -> str:
+    """JS内のURLっぽい文字列をプロキシ経由に書き換え"""
+    def replace_url(m):
+        quote_char = m.group(1)
+        url = m.group(2)
+        if url.startswith(("data:", "javascript:", "/view?")):
+            return m.group(0)
+        rewritten = rewrite_url(url, base_url)
+        return f"{quote_char}{rewritten}{quote_char}"
+
+    # "https://..." や 'https://...' を置換
+    js = re.sub(r'(["\'])(https?://[^"\'<>\s]{4,})(["\'])', 
+                lambda m: f'{m.group(1)}{rewrite_url(m.group(2), base_url)}{m.group(3)}', js)
+    return js
+
 def rewrite_html(content: bytes, base_url: str) -> bytes:
     try:
         soup = BeautifulSoup(content, "html.parser")
+
         for tag in soup.find_all("a", href=True):
             tag["href"] = rewrite_url(tag["href"], base_url)
         for tag in soup.find_all("form", action=True):
@@ -172,10 +150,29 @@ def rewrite_html(content: bytes, base_url: str) -> bytes:
                 tag["srcset"] = ", ".join(parts)
         for tag in soup.find_all("base"):
             tag.decompose()
+
+        # インラインJSも書き換え
+        for tag in soup.find_all("script", src=False):
+            if tag.string:
+                tag.string = rewrite_js(tag.string, base_url)
+
         body = soup.find("body")
         if body:
             body.insert(0, BeautifulSoup(HOME_BUTTON, "html.parser"))
+
         return str(soup).encode("utf-8", errors="replace")
+    except Exception:
+        return content
+
+def rewrite_css(content: bytes, base_url: str) -> bytes:
+    """CSS内のurl()を書き換え"""
+    try:
+        text = content.decode("utf-8", errors="replace")
+        def replace(m):
+            url = m.group(1).strip("'\"")
+            return f"url({rewrite_url(url, base_url)})"
+        text = re.sub(r'url\(([^)]+)\)', replace, text)
+        return text.encode("utf-8", errors="replace")
     except Exception:
         return content
 
@@ -221,8 +218,16 @@ async def view(request: Request):
 
     content_type = resp.headers.get("content-type", "")
     content = resp.content
+
     if "text/html" in content_type:
         content = rewrite_html(content, str(resp.url))
+    elif "javascript" in content_type or "ecmascript" in content_type:
+        try:
+            content = rewrite_js(content.decode("utf-8", errors="replace"), str(resp.url)).encode("utf-8", errors="replace")
+        except Exception:
+            pass
+    elif "text/css" in content_type:
+        content = rewrite_css(content, str(resp.url))
 
     skip_resp = {"transfer-encoding", "content-encoding", "content-length",
                  "content-security-policy", "x-frame-options", "strict-transport-security"}
