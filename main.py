@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import Response, HTMLResponse
+from fastapi.responses import Response, HTMLResponse, FileResponse
+
 import httpx
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, quote
@@ -8,12 +9,19 @@ import os
 
 app = FastAPI()
 
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse("favicon.ico")
+
 AUTH_TOKEN = os.environ.get("PROXY_TOKEN", "")
 RATE_LIMIT_HEADER = {"X-Robots-Tag": "noindex, nofollow"}
+
+
 
 HOME_HTML = """<!DOCTYPE html>
 <html lang="ja">
 <head>
+<link rel="icon" href="/favicon.ico">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>kapibara home</title>
